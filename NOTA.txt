@@ -1,0 +1,26 @@
+Proyecto 2: Gráficos por Computadora II
+
+Keyframing with Posture
+
+Segundo Término 2014 - 2015
+
+Autor:
+-Kevin Filella
+
+NOTA:
+
+Si se desea correr el programa en Google Chrome, se debe colocar en el acceso directo de dicho explorador la siguiente línea de comando en la dirección de DESTINO despues de "...\chrome.exe" separado por un espacio:
+
+ --allow-file-access-from-files
+
+Para Firefox se recomienda:
+
+1. Ir a: about:config
+2. Buscar el parametro: security.fileuri.strict_origin_policy
+3. Cambiarlo a False
+
+-----------------------------------
+
+El proyecto se encuentra en: /html/Proyecto2.html
+
+La documentación del proyecto se encuentra en el archivo de GOOGLE DOCS compartido con el profesor.

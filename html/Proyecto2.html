@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+*Autor: Kevin Filella
+*T&iacute;tulo: Proyecto 2 Gr&aacute;ficos por Computadora II - Segundo T&eacute;rmino 2014 - 2015
+<html>
+
+<head>
+    <title>Blender model bone control</title>
+    <script type="text/javascript" src="../libs/three.js"></script>
+    <script type="text/javascript" src="../libs/jquery-1.9.0.js"></script>
+    <script type="text/javascript" src="../libs/stats.js"></script>
+    <script type="text/javascript" src="../libs/dat.gui.js"></script>
+    <script type="text/javascript" src="../libs/tween.min.js"></script>
+	<script type="text/javascript" src="../libs/TrackballControls.js"></script>
+	<script type="text/javascript" src="../libs/KeyboardState.js"></script>
+	<script type="text/javascript" src="../libs/TransformControls.js"></script>
+	<script type="text/javascript" src="../libs/SkeletonHelper.js"></script>
+	<script type='text/javascript' src='../libs/DAT.GUI.min.js'></script>
+    <style>
+	 #gui-container {
+            float: right;
+            height: 120px;
+        }
+        body {
+            /* set margin to 0 and overflow to hidden, to go fullscreen */
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+<div id="Stats-output">
+</div>
+<!-- Div which will hold the Output -->
+<div id="WebGL-output">
+</div>
+
+<!-- Javascript code that runs our Three.js examples -->
+<script type="text/javascript">
+
+    // once everything is loaded, we run our Three.js stuff.
+
+    $(function () {
+		var container = document.createElement( 'div' );
+		document.body.appendChild( container );
+        //var stats = initStats();
+		var gui,parameters;
+		var keyboard = new KeyboardState();
+		
+        // create a scene, that will hold all our elements such as objects, cameras and lights.
+        var scene = new THREE.Scene();
+
+        // create a camera, which defines where we're looking at.
+        var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+        // create a render and set the size
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setClearColor(new THREE.Color(0xEEEEEE, 1.0));
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMapEnabled = true;
+
+        // position and point the camera to the center of the scene
+        camera.position.x = 50;
+        camera.position.y = 30;
+        camera.position.z = -50;
+        camera.lookAt(new THREE.Vector3(0, 0, 0));
+		
+		//grid
+		var size = 50, step = 3;
+		var geometry = new THREE.Geometry();
+		var material = new THREE.LineBasicMaterial({color: 'gray'});   
+		for ( var i = - size; i <= size; i += step){
+			geometry.vertices.push(new THREE.Vector3( - size, - 0.04, i ));
+			geometry.vertices.push(new THREE.Vector3( size, - 0.04, i ));
+			geometry.vertices.push(new THREE.Vector3( i, - 0.04, - size ));
+			geometry.vertices.push(new THREE.Vector3( i, - 0.04, size ));
+		}
+		var line = new THREE.Line( geometry, material, THREE.LinePieces);
+		scene.add(line);
+
+        //spotlight
+        var spotLight = new THREE.SpotLight(0xffffff);
+        spotLight.position.set(0, 500, 30);
+        spotLight.intensity = 2;
+        scene.add(spotLight);
+
+        // add the output of the renderer to the html element
+        $("#WebGL-output").append(renderer.domElement);
+		
+        var step = 0;
+        var mesh;
+        var clock = new THREE.Clock();
+
+		// mouse tracking
+		
+		mouseTrack = new THREE.TrackballControls(camera, renderer.domElement); //función que modifica la camara segun el movimiento del mouse
+		mouseTrack.rotateSpeed=0.8; //velocidad de rotacion de la cámara
+		mouseTrack.zoomSpeed=1.5; //velocidad de acercamiento/alejamiento de la camara
+		mouseTrack.panSpeed=1.0; //velocidad de traslación de la camara
+		mouseTrack.noZoom=false;
+		mouseTrack.noPan=false;
+		mouseTrack.staticMoving=true;
+		mouseTrack.dynamicDampingFactor = 0.3;
+
+		//init control variables
+		
+		var index = 0;
+		var poseX = new Array();
+		var poseY = new Array();
+		var poseZ = new Array();
+		var rx = [];
+		var ry = [];
+		var rz = [];
+		var meshPosX = 0;
+		var meshPosY = 0;
+		var meshPosZ = 0;
+		var meshRotX = 0;
+		var meshRotY = 0;
+		var meshRotZ = 0;
+		var meshRGB;
+		var array_poses = [];
+		var pose_colors = [];
+		var array_bones = [[]];
+		numPoses = 0;
+		var boneTweens = [];
+		var maxRot = 180;
+		var minRot = -180;
+		var boneParameters;
+		
+		//load model into scene
+		
+        var loader = new THREE.JSONLoader();
+        loader.load('../assets/models/modelo.json', function (geometry, mat) {
+            var mat = new THREE.MeshLambertMaterial({color: 0xF0C8C9, skinning: true});
+            mesh = new THREE.SkinnedMesh(geometry, mat);
+			mesh.castShadow = true;
+			var animation = new THREE.Animation(mesh, geometry.animation);
+            // add the mesh
+			animation.play();
+            scene.add(mesh);
+			animation.play();
+            tween.start();
+        }, '../assets/models');
+		
+		
+		//parameters and folders for sidebar controls
+		
+		parameters = {
+			TranslateX: 0, TranslateY: 0, TranslateZ: 0,
+			RotateX: 0, RotateY: 0, RotateZ: 0,
+			color:  "#f0c8c9", // color (change "#" to "0x")
+			colorA: "#000000", // color (change "#" to "0x")
+			colorE: "#000033", // color (change "#" to "0x")
+			colorS: "#ffff00", // color (change "#" to "0x")
+			shininess: 30,
+			opacity: 1, 
+			visible: true,
+			material: "Lambert",
+			reset: function() { resetMesh() },
+			deletePoses: function() {resetPoses()},
+			boneRotX: 0, boneRotY: 0, boneRotZ: 0,
+			interpTime: 1000,
+			resetBoneRots: function() {resetBoneRotations()},
+			resetMeshTrans: function() {resetMeshTranslations()},
+			resetMeshRots: function() {resetMeshRotations()},
+			resetMat: function() {resetMaterial()},
+			resetBoneRots: function() {resetBoneRotations()},
+			easing: 'Linear.None'
+		};
+		var easing	= TWEEN.Easing[parameters.easing.split('.')[0]][parameters.easing.split('.')[1]];
+		var easings	= {};
+		Object.keys(TWEEN.Easing).forEach(function(family){
+			Object.keys(TWEEN.Easing[family]).forEach(function(direction){
+				var name	= family+'.'+direction;
+				easings[name]	= name;
+			});
+		});
+		
+		gui = new dat.GUI();
+		gui2 = new dat.GUI();
+		
+		var folderB = gui2.addFolder('Bone Controls');	
+		
+		var folder2 = gui.addFolder('Mesh Rotation');
+		var meshRX = folder2.add( parameters, 'RotateX', minRot,maxRot).listen();
+		var meshRY = folder2.add( parameters, 'RotateY', minRot,maxRot).listen();
+		var meshRZ = folder2.add( parameters, 'RotateZ', minRot,maxRot).listen();
+		folder2.add(parameters, 'resetMeshRots').name("Reset");
+		
+		var folder1 = gui.addFolder('Mesh Translation');
+		var meshX = folder1.add( parameters, 'TranslateX' ).min(-100).max(100).step(1).listen();
+		var meshY = folder1.add( parameters, 'TranslateY' ).min(-100).max(100).step(1).listen();
+		var meshZ = folder1.add( parameters, 'TranslateZ' ).min(-100).max(100).step(1).listen();
+		folder1.add(parameters, 'resetMeshTrans').name("Reset");
+		
+		meshX.onChange(function(value) 
+		{   mesh.position.x = value;   });
+		meshY.onChange(function(value) 
+		{   mesh.position.y = value;   });
+		meshZ.onChange(function(value) 
+		{   mesh.position.z = value;   });
+		
+		meshRX.onChange(function(value) 
+		{   mesh.rotation.x = value*Math.PI/maxRot;   });
+		meshRY.onChange(function(value) 
+		{   mesh.rotation.y = value*Math.PI/maxRot;   });
+		meshRZ.onChange(function(value) 
+		{   mesh.rotation.z = value*Math.PI/maxRot;   });
+		
+		var folder3 = gui.addFolder('Mesh Material');
+		var meshColor = folder3.addColor( parameters, 'color' ).name('Color (Diffuse)').listen();
+		meshColor.onChange(function(value) // onFinishChange
+		{   mesh.material.color.setHex( value.replace("#", "0x") );   });
+		var meshColorA = folder3.addColor( parameters, 'colorA' ).name('Color (Ambient)').listen();
+		meshColorA.onChange(function(value) // onFinishChange
+		{   mesh.material.ambient.setHex( value.replace("#", "0x") );   });
+		var meshColorE = folder3.addColor( parameters, 'colorE' ).name('Color (Emissive)').listen();
+		meshColorE.onChange(function(value) // onFinishChange
+		{   mesh.material.emissive.setHex( value.replace("#", "0x") );   });
+		var meshShininess = folder3.add( parameters, 'shininess' ).min(0).max(60).step(1).name('Shininess').listen();
+		meshShininess.onChange(function(value)
+		{   mesh.material.shininess = value;   });
+		var meshOpacity = folder3.add( parameters, 'opacity' ).min(0).max(1).step(0.01).name('Opacity').listen();
+		meshOpacity.onChange(function(value)
+		{   mesh.material.opacity = value;   });
+		var meshMaterial = folder3.add( parameters, 'material', [ "Basic", "Lambert", "Phong", "Wireframe" ] ).name('Material Type').listen();
+		meshMaterial.onChange(function(value) 
+		{   onUpdate();   });
+		folder3.add(parameters,'resetMat').name("Reset");
+			
+		var folder5 = gui.addFolder('Interpolation');
+		var inter = folder5.add ( parameters, 'interpTime' ).min(100).max(10000).step(100).name('Interpolation (ms)').listen();
+		var easingCurve = folder5.add(parameters, 'easing').options(easings).name('Easing Curve').listen();	
+		easingCurve.onChange(function(value) 
+		{   easing = TWEEN.Easing[parameters.easing.split('.')[0]][parameters.easing.split('.')[1]];   });
+		gui.add( parameters, 'reset' ).name("Reset Mesh Parameters");
+		gui.add( parameters, 'deletePoses' ).name("Delete Poses");
+		
+		boneParameters = { 
+			bone1RotX:0,bone1RotY:0,bone1RotZ:0,
+			bone2RotX:0,bone2RotY:0,bone2RotZ:0,
+			bone3RotX:0,bone3RotY:0,bone3RotZ:0,
+			bone4RotX:0,bone4RotY:0,bone4RotZ:0,
+			bone5RotX:0,bone5RotY:0,bone5RotZ:0,
+			bone6RotX:0,bone6RotY:0,bone6RotZ:0,
+			bone7RotX:0,bone7RotY:0,bone7RotZ:0,
+			bone8RotX:0,bone8RotY:0,bone8RotZ:0,
+			bone9RotX:0,bone9RotY:0,bone9RotZ:0,
+			bone10RotX:0,bone10RotY:0,bone10RotZ:0
+		};
+
+		var folderB1 = folderB.addFolder("Bone1 Rotation");
+		var bone1RX = folderB1.add( boneParameters, 'bone1RotX', minRot,maxRot).listen();
+		var bone1RY = folderB1.add( boneParameters, 'bone1RotY', minRot,maxRot).listen();
+		var bone1RZ = folderB1.add( boneParameters, 'bone1RotZ', minRot,maxRot).listen();
+		var folderB2 = folderB.addFolder("Bone2 Rotation");
+		var bone2RX = folderB2.add( boneParameters, 'bone2RotX', minRot,maxRot).listen();
+		var bone2RY = folderB2.add( boneParameters, 'bone2RotY', minRot,maxRot).listen();
+		var bone2RZ = folderB2.add( boneParameters, 'bone2RotZ', minRot,maxRot).listen();
+		var folderB3 = folderB.addFolder("Bone3 Rotation");
+		var bone3RX = folderB3.add( boneParameters, 'bone3RotX', minRot,maxRot).listen();
+		var bone3RY = folderB3.add( boneParameters, 'bone3RotY', minRot,maxRot).listen();
+		var bone3RZ = folderB3.add( boneParameters, 'bone3RotZ', minRot,maxRot).listen();
+		var folderB4 = folderB.addFolder("Bone4 Rotation");
+		var bone4RX = folderB4.add( boneParameters, 'bone4RotX', minRot,maxRot).listen();
+		var bone4RY = folderB4.add( boneParameters, 'bone4RotY', minRot,maxRot).listen();
+		var bone4RZ = folderB4.add( boneParameters, 'bone4RotZ', minRot,maxRot).listen();
+		var folderB5 = folderB.addFolder("Bone5 Rotation");
+		var bone5RX = folderB5.add( boneParameters, 'bone5RotX', minRot,maxRot).listen();
+		var bone5RY = folderB5.add( boneParameters, 'bone5RotY', minRot,maxRot).listen();
+		var bone5RZ = folderB5.add( boneParameters, 'bone5RotZ', minRot,maxRot).listen();
+		var folderB6 = folderB.addFolder("Bone6 Rotation");
+		var bone6RX = folderB6.add( boneParameters, 'bone6RotX', minRot,maxRot).listen();
+		var bone6RY = folderB6.add( boneParameters, 'bone6RotY', minRot,maxRot).listen();
+		var bone6RZ = folderB6.add( boneParameters, 'bone6RotZ', minRot,maxRot).listen();
+		var folderB7 = folderB.addFolder("Bone7 Rotation");
+		var bone7RX = folderB7.add( boneParameters, 'bone7RotX', minRot,maxRot).listen();
+		var bone7RY = folderB7.add( boneParameters, 'bone7RotY', minRot,maxRot).listen();
+		var bone7RZ = folderB7.add( boneParameters, 'bone7RotZ', minRot,maxRot).listen();
+		var folderB8 = folderB.addFolder("Bone8 Rotation");
+		var bone8RX = folderB8.add( boneParameters, 'bone8RotX', minRot,maxRot).listen();
+		var bone8RY = folderB8.add( boneParameters, 'bone8RotY', minRot,maxRot).listen();
+		var bone8RZ = folderB8.add( boneParameters, 'bone8RotZ', minRot,maxRot).listen();
+		var folderB9 = folderB.addFolder("Bone9 Rotation");
+		var bone9RX = folderB9.add( boneParameters, 'bone9RotX', minRot,maxRot).listen();
+		var bone9RY = folderB9.add( boneParameters, 'bone9RotY', minRot,maxRot).listen();
+		var bone9RZ = folderB9.add( boneParameters, 'bone9RotZ', minRot,maxRot).listen();
+		var folderB10 = folderB.addFolder("Bone10 Rotation");
+		var bone10RX = folderB10.add( boneParameters, 'bone10RotX', minRot,maxRot).listen();
+		var bone10RY = folderB10.add( boneParameters, 'bone10RotY', minRot,maxRot).listen();
+		var bone10RZ = folderB10.add( boneParameters, 'bone10RotZ', minRot,maxRot).listen();
+		folderB.add(parameters,'resetBoneRots').name("Reset Bones");
+		
+		bone1RX.onChange(function(value) 
+		{   mesh.skeleton.bones[0].rotation.x = value*Math.PI/maxRot;   });
+		bone1RY.onChange(function(value) 
+		{   mesh.skeleton.bones[0].rotation.y = value*Math.PI/maxRot;   });
+		bone1RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[0].rotation.z = value*Math.PI/maxRot;   });
+		bone2RX.onChange(function(value) 
+		{   mesh.skeleton.bones[1].rotation.x = value*Math.PI/maxRot;   });
+		bone2RY.onChange(function(value) 
+		{   mesh.skeleton.bones[1].rotation.y = value*Math.PI/maxRot;   });
+		bone2RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[1].rotation.z = value*Math.PI/maxRot;   });
+		bone3RX.onChange(function(value) 
+		{   mesh.skeleton.bones[2].rotation.x = value*Math.PI/maxRot;   });
+		bone3RY.onChange(function(value) 
+		{   mesh.skeleton.bones[2].rotation.y = value*Math.PI/maxRot;   });
+		bone3RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[2].rotation.z = value*Math.PI/maxRot;   });
+		bone4RX.onChange(function(value) 
+		{   mesh.skeleton.bones[3].rotation.x = value*Math.PI/maxRot;   });
+		bone4RY.onChange(function(value) 
+		{   mesh.skeleton.bones[3].rotation.y = value*Math.PI/maxRot;   });
+		bone4RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[3].rotation.z = value*Math.PI/maxRot;   });
+		bone5RX.onChange(function(value) 
+		{   mesh.skeleton.bones[4].rotation.x = value*Math.PI/maxRot;   });
+		bone5RY.onChange(function(value) 
+		{   mesh.skeleton.bones[4].rotation.y = value*Math.PI/maxRot;   });
+		bone5RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[4].rotation.z = value*Math.PI/maxRot;   });
+		bone6RX.onChange(function(value) 
+		{   mesh.skeleton.bones[5].rotation.x = value*Math.PI/maxRot;   });
+		bone6RY.onChange(function(value) 
+		{   mesh.skeleton.bones[5].rotation.y = value*Math.PI/maxRot;   });
+		bone6RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[5].rotation.z = value*Math.PI/maxRot;   });
+		bone7RX.onChange(function(value) 
+		{   mesh.skeleton.bones[6].rotation.x = value*Math.PI/maxRot;   });
+		bone7RY.onChange(function(value) 
+		{   mesh.skeleton.bones[6].rotation.y = value*Math.PI/maxRot;   });
+		bone7RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[6].rotation.z = value*Math.PI/maxRot;   });
+		bone8RX.onChange(function(value) 
+		{   mesh.skeleton.bones[7].rotation.x = value*Math.PI/maxRot;   });
+		bone8RY.onChange(function(value) 
+		{   mesh.skeleton.bones[7].rotation.y = value*Math.PI/maxRot;   });
+		bone8RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[7].rotation.z = value*Math.PI/maxRot;   });
+		bone9RX.onChange(function(value) 
+		{   mesh.skeleton.bones[8].rotation.x = value*Math.PI/maxRot;   });
+		bone9RY.onChange(function(value) 
+		{   mesh.skeleton.bones[8].rotation.y = value*Math.PI/maxRot;   });
+		bone9RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[8].rotation.z = value*Math.PI/maxRot;   });
+		bone10RX.onChange(function(value) 
+		{   mesh.skeleton.bones[9].rotation.x = value*Math.PI/maxRot;   });
+		bone10RY.onChange(function(value) 
+		{   mesh.skeleton.bones[9].rotation.y = value*Math.PI/maxRot;   });
+		bone10RZ.onChange(function(value) 
+		{   mesh.skeleton.bones[9].rotation.z = value*Math.PI/maxRot;   });
+	
+		//indexes
+		var iBones,iPoses = 0;
+		var initArrays = true;
+		var helper; 
+
+		
+        var onUpdate = function () {
+			
+			//update skeleton helper
+			if ( helper !== undefined ) helper.update();
+			
+            var pos = this.pos;
+            var delta = clock.getDelta();
+			
+			//applying sidebar parameter changes to mesh
+			
+			var value = parameters.material;
+			var newMaterial;
+			if (value == "Basic")
+				newMaterial = new THREE.MeshBasicMaterial( { color: 0x000000, skinning: true } );
+			else if (value == "Lambert")
+				newMaterial = new THREE.MeshLambertMaterial( { color: 0x000000, skinning: true } );
+			else if (value == "Phong")
+				newMaterial = new THREE.MeshPhongMaterial( { color: 0x000000, skinning: true } );
+			else // (value == "Wireframe")
+				newMaterial = new THREE.MeshBasicMaterial( { wireframe: true, skinning: true } );
+			mesh.material = newMaterial;
+			
+			mesh.material.color.setHex( parameters.color.replace("#", "0x") );
+			if (mesh.material.ambient)
+				mesh.material.ambient.setHex( parameters.colorA.replace("#", "0x") );
+			if (mesh.material.emissive)
+				mesh.material.emissive.setHex( parameters.colorE.replace("#", "0x") ); 
+			if (mesh.material.specular)
+				mesh.material.specular.setHex( parameters.colorS.replace("#", "0x") ); 
+			if (mesh.material.shininess)
+				mesh.material.shininess = parameters.shininess;
+			mesh.material.opacity = parameters.opacity;  
+			mesh.material.transparent = true;
+			
+			keyboard.update();
+			
+			// --- MESH POSITION CONTROLS ---
+			
+			// W/S and up/down: translate Z axis
+			// A/D and left/right: translate X axis
+			// Q/E and shift+up/down: translate Y axis
+
+			
+			var moveDistance = 15 * delta; 	
+
+			if ( keyboard.pressed("A") )
+				mesh.translateX( -moveDistance );
+				
+			if ( keyboard.pressed("D") )
+				mesh.translateX( moveDistance );
+				
+			if ( keyboard.pressed("S") )
+				mesh.translateZ( moveDistance );
+				
+			if ( keyboard.pressed("W") )
+				mesh.translateZ( -moveDistance );
+				
+			if ( keyboard.pressed("Q") )
+				mesh.translateY( moveDistance );
+				
+			if ( keyboard.pressed("E") ){
+				mesh.translateY( -moveDistance );	
+			}
+			
+
+			// --- MESH PROPERTY CONTROLS ---
+			
+			//press 9: play default mesh animation
+			if ( keyboard.pressed("9") && mesh){
+                THREE.AnimationHandler.update(delta);
+            }
+			
+			//press P: saves current pose and places pose reference in scene
+			if ( keyboard.down("P") ){
+				savePose();
+			}
+			
+			//press L: linear interpolation between current pose and next pose (saved using P command), also interpolates mesh color between poses
+			if ( keyboard.down("L") ){
+				
+				if(iPoses < numPoses){
+					for(var i=0;i<mesh.skeleton.bones.length;i++){
+						console.log(poseX[iPoses][i]+","+poseY[iPoses][i]+","+poseZ[iPoses][i]);
+						new TWEEN.Tween( mesh.skeleton.bones[i].rotation ).to( {x: poseX[iPoses][i], y: poseY[iPoses][i], z: poseZ[iPoses][i] }, parameters.interpTime )
+							.easing(easing).start();
+						console.log(poseX[iPoses][i]+","+poseY[iPoses][i]+","+poseZ[iPoses][i]);
+					}
+					new TWEEN.Tween( mesh.position )
+						.to( { x: array_poses[iPoses].position.x, y: array_poses[iPoses].position.y, z: array_poses[iPoses].position.z } , parameters.interpTime )
+						.easing(easing)
+						.start();
+					new TWEEN.Tween( mesh.rotation )
+						.to( { x: array_poses[iPoses].rotation.x, y: array_poses[iPoses].rotation.y, z: array_poses[iPoses].rotation.z } , parameters.interpTime )
+						.easing(easing)
+						.start();	
+	
+					new TWEEN.Tween( mesh.material.color )
+						.to( { r: pose_colors[iPoses].r, g: pose_colors[iPoses].g, b: pose_colors[iPoses].b } , parameters.interpTime )
+						.onUpdate(function(){
+							mesh.material.color.r = this.r;
+							mesh.material.color.g = this.g;
+							mesh.material.color.b = this.b;
+						})
+						.easing(easing)
+						.start();
+		
+					iPoses++;
+				}
+					if(iPoses >= numPoses)
+						iPoses = 0;
+			}
+			
+			if(initArrays){
+				for (var i=0;i<100;i++) {
+					poseX[i]=new Array();
+					poseY[i]=new Array();
+					poseZ[i]=new Array();
+					for (j=0;j<mesh.skeleton.bones.length;j++) {
+						poseX[i][j]=0;
+						poseY[i][j]=0;
+						poseZ[i][j]=0;
+					}
+				}
+				helper = new THREE.SkeletonHelper( mesh );
+				helper.material.linewidth = 5;
+				helper.visible = true;
+				scene.add( helper );
+				initArrays=false;
+			}
+			
+        };
+
+		
+		// tween controls	
+		
+        var tween = new TWEEN.Tween({pos: -1})
+                .to({pos: 0}, 2000)
+                .easing(TWEEN.Easing.Cubic.InOut)
+                .yoyo(true)
+                .repeat(Infinity)
+                .onUpdate(onUpdate);
+		
+		//resets mesh transforms (rotation, translation, bone rotations)
+		function resetTransforms(){
+				mesh.pose();
+				mesh.position.set(0,0,0);
+				mesh.rotation.set(0,0,0);
+		}
+		
+		//returns mesh color
+		function getMeshRGB(mesh){
+			return mesh.material.color;
+		}
+		
+		//resets to default mesh parameters
+		function resetMesh(){
+			resetMeshTranslations();
+			resetMeshRotations();
+			resetBoneRotations();
+			parameters.color = "#f0c8c9";
+			parameters.colorA = "#000000";
+			parameters.colorE = "#000033";
+			parameters.colorS = "#ffff00";
+			parameters.shininess = 30;
+			parameters.opacity = 1;
+			parameters.visible = true;
+			parameters.material = "Phong";
+			resetTransforms();
+			onUpdate();
+		}
+		
+		//resets to default mesh material
+		function resetMaterial(){
+			parameters.color = "#f0c8c9";
+			parameters.colorA = "#000000";
+			parameters.colorE = "#000033";
+			parameters.colorS = "#ffff00";
+			parameters.shininess = 30;
+			parameters.opacity = 1;
+			parameters.visible = true;
+			parameters.material = "Phong";
+			onUpdate();
+		}
+		
+        render();
+		
+		
+		//saves current bone rotations and mesh position and adds a pose reference
+		function savePose(){
+		
+			var index = 0;
+			
+			//saving pose data
+			for(var i=0;i<mesh.skeleton.bones.length;i++){
+				poseX[numPoses][i] = mesh.skeleton.bones[i].rotation.x;
+				poseY[numPoses][i] = mesh.skeleton.bones[i].rotation.y;
+				poseZ[numPoses][i] = mesh.skeleton.bones[i].rotation.z;
+				rx[i] = poseX[numPoses][i];
+				ry[i] = poseY[numPoses][i];
+				rz[i] = poseZ[numPoses][i];
+				console.log("Pose "+numPoses+": Bone "+i+": "+rx[i]+", "+ry[i]+", "+rz[i]);
+			}
+			
+			meshPosX = mesh.position.x;
+			meshPosY = mesh.position.y;
+			meshPosZ = mesh.position.z;
+			
+			meshRotX = mesh.rotation.x;
+			meshRotY = mesh.rotation.y;
+			meshRotZ = mesh.rotation.z;
+			
+			//pose reference
+			array_poses[array_poses.length] = mesh.clone();
+			
+			array_poses[array_poses.length-1].material.opacity = 0.3;
+			
+			for( var i = 0; i< array_poses[array_poses.length-1].skeleton.bones.length; i++ ) {
+				array_poses[array_poses.length-1].skeleton.bones[ i ].rotation.x = rx[i];
+				array_poses[array_poses.length-1].skeleton.bones[ i ].rotation.y = ry[i];
+				array_poses[array_poses.length-1].skeleton.bones[ i ].rotation.z = rz[i];
+			}
+			console.log(array_poses[array_poses.length-1]);
+			scene.add(array_poses[array_poses.length-1]);
+			
+			pose_colors[pose_colors.length] = array_poses[array_poses.length-1].material.color;
+			console.log(pose_colors[pose_colors.length-1]);
+			
+			numPoses++;
+		}
+		
+        function render() {
+			
+            TWEEN.update();
+			
+            var delta = clock.getDelta();
+
+            // render using requestAnimationFrame
+            requestAnimationFrame(render);
+            renderer.render(scene, camera);
+			
+			mouseTrack.update();
+        }
+		
+		//delete all saved poses and removes pose references from scene
+		function resetPoses(){
+			for ( var i = 0 ; i < array_poses.length ; i++ ){
+				scene.remove(array_poses[i]);
+			}
+			array_poses = [];
+			numPoses = 0;
+		}
+		
+		//resets rotations of all bones to (0,0,0)
+		function resetBoneRotations(){
+			boneParameters.bone1RotX=0,boneParameters.bone1RotY=0,boneParameters.bone1RotZ=0;
+			boneParameters.bone2RotX=0,boneParameters.bone2RotY=0,boneParameters.bone2RotZ=0;
+			boneParameters.bone3RotX=0,boneParameters.bone3RotY=0,boneParameters.bone3RotZ=0;
+			boneParameters.bone4RotX=0,boneParameters.bone4RotY=0,boneParameters.bone4RotZ=0;
+			boneParameters.bone5RotX=0,boneParameters.bone5RotY=0,boneParameters.bone5RotZ=0;
+			boneParameters.bone6RotX=0,boneParameters.bone6RotY=0,boneParameters.bone6RotZ=0;
+			boneParameters.bone7RotX=0,boneParameters.bone7RotY=0,boneParameters.bone7RotZ=0;
+			boneParameters.bone8RotX=0,boneParameters.bone8RotY=0,boneParameters.bone8RotZ=0;
+			boneParameters.bone9RotX=0,boneParameters.bone9RotY=0,boneParameters.bone9RotZ=0;
+			boneParameters.bone10RotX=0,boneParameters.bone10RotY=0,boneParameters.bone10RotZ=0;
+			for(var i = 0; i<mesh.skeleton.bones.length ; i++ )
+				mesh.skeleton.bones[i].rotation.set(0,0,0);
+			onUpdate();
+		}
+		
+		//resets mesh translations to (0,0,0)
+		function resetMeshTranslations(){
+			parameters.TranslateX = 0;
+			parameters.TranslateY = 0;
+			parameters.TranslateZ = 0;
+			mesh.position.set(0,0,0);
+			onUpdate();
+		}
+		//resets mesh rotations to (0,0,0)
+		function resetMeshRotations(){
+			parameters.RotateX = 0;
+			parameters.RotateY = 0;
+			parameters.RotateZ = 0;
+			mesh.rotation.set(0,0,0);
+			onUpdate();
+		}
+		
+        function initStats() {
+
+            var stats = new Stats();
+            stats.setMode(0); // 0: fps, 1: ms
+
+            // Align top-left
+            stats.domElement.style.position = 'absolute';
+            stats.domElement.style.left = '0px';
+            stats.domElement.style.top = '0px';
+
+            $("#Stats-output").append(stats.domElement);
+
+            return stats;
+        }
+		
+		function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				render();
+
+		}
+    });
+
+</script>
+
+</body>
+</html>
